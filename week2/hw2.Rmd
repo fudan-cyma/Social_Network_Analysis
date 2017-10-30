@@ -1,0 +1,227 @@
+---
+title: "Social Network Analysis Assignment 2 "
+output: html_notebook
+---
+
+# Question 1 
+*Return to the classrom exercise featuring the S641 data, which can be accessed with data(studentnets.S641, package = "NetData"). Generate indegree, outdegree, undi-rected closeness (as opposed to the directed version in the example), betweenness, and undi-rected eigenvector centrality statistics for each individual the task network. Compute the correlations of the five centrality measures you generate in the task talk network with the same measures for each individual in the socializing network. Which measures in the task network are most closely related to those in the socializing network? What sort of substantive story can you derive from all of these results? *
+
+```{r}
+rm(list = ls(all = TRUE))
+library(igraph)
+library(data.table)
+setwd("C:/Users/cyma9/Dropbox/SocialNetwork/week2")
+data(studentnets.S641, package = "NetData")
+
+s641_full_nonzero_edges = subset(s641_full_data_frame, (social_tie > 0 | task_tie > 0))
+s641_full = graph.data.frame(s641_full_nonzero_edges,directed = TRUE) 
+
+
+s641_social = delete.edges(s641_full, E(s641_full)[get.edge.attribute(s641_full,name = "social_tie")==0])
+s641_social = delete.vertices(s641_social, V(s641_social)[degree(s641_social)==0])
+s641_task = delete.edges(s641_full, E(s641_full)[get.edge.attribute(s641_full,name = "task_tie")==0])
+s641_task = delete.vertices(s641_task, V(s641_task)[degree(s641_task)==0])
+
+
+getNetStats=function(net)
+{
+  degree_in = degree(net, mode = "in")
+  degree_out = degree(net, mode = "out")
+  close_all = closeness(net, mode = 'all')
+  betw = betweenness(net)
+  evc = evcent(as.undirected(net, mode = "collapse"))
+  id=V(net)$name
+  stats=as.data.table(list(id = id, degree_in = degree_in,degree_out = degree_out, close_all = close_all, betw = betw, evc = evc$vector))
+  return(stats)
+}
+
+netstats_task = getNetStats(s641_task)
+netstats_social = getNetStats(s641_social)
+
+
+cor(netstats_task[-c(11,12),2],netstats_social[-c(11),2])
+cor(netstats_task[-c(11,12),3],netstats_social[-c(11),3])
+cor(netstats_task[-c(11,12),4],netstats_social[-c(11),4])
+cor(netstats_task[-c(11,12),5],netstats_social[-c(11),5])
+cor(netstats_task[-c(11,12),6],netstats_social[-c(11),6])
+
+
+
+
+```
+
+*Undirected closeness is the most close related.* 
+
+# Question 2 
+*Remaining with the classroom network, suppose that a tie is strong if it is above the mean strength for that type, conditional on the tie existing. Consider both social and task ties as being a part of the same network. Under this definition, does the network satisfy Strong Triadic Closure? Now suppose that a tie is strong if it is above the median strength for that type, conditional on the tie existing. Under this definiton, does the network satisfy Strong Triadic Closure? What conclusions can you draw from these results?* 
+
+**For mean**
+```{r}
+mean_social = mean(s641_full_nonzero_edges$social_tie)
+mean_task = mean(s641_full_nonzero_edges$task_tie)
+
+E(s641_social)$weight = s641_full_data_frame$social_tie[(as.numeric(ends(s641_social,E(s641_social))[,1])-1)*22+as.numeric(ends(s641_social,E(s641_social))[,2])]
+E(s641_task)$weight = s641_full_data_frame$task_tie[(as.numeric(ends(s641_task,E(s641_task))[,1])-1)*22+as.numeric(ends(s641_task,E(s641_task))[,2])]
+
+
+E(s641_social)$color = ifelse(E(s641_social)$weight < mean_social, 'red','green')
+E(s641_task)$color = ifelse(E(s641_task)$weight < mean_social, 'red','green')
+graph_mean = s641_social + s641_task
+for (i in c(1:length(E(graph_mean)$color_1)))
+{
+    E(graph_mean)$color_1 <- ifelse(is.na(E(graph_mean)$color_1),E(graph_mean)$color_2,E(graph_mean)$color_1)
+    E(graph_mean)$color_2 <- ifelse(is.na(E(graph_mean)$color_2),E(graph_mean)$color_1,E(graph_mean)$color_2)
+
+    if ((E(graph_mean)$color_1[i] == 'red') | (E(graph_mean)$color_2[i] =='red'))
+      E(graph_mean)$color[i] = 'red'
+    if ((E(graph_mean)$color_1[i] == 'green') & (E(graph_mean)$color_2[i] =='green'))
+      E(graph_mean)$color[i] = 'green'
+}
+
+
+plot.igraph(graph_mean, layout=layout.fruchterman.reingold, edge.arrow.size=.5,edge.color = E(graph_mean)$color,edge.curved = FALSE)
+
+
+```
+**For median**
+```{r}
+median_social = median(s641_full_nonzero_edges$social_tie)
+median_task = median(s641_full_nonzero_edges$task_tie)
+
+E(s641_social)$color = ifelse(E(s641_social)$weight < median_social, 'red','green')
+E(s641_task)$color = ifelse(E(s641_task)$weight < median_social, 'red','green')
+
+
+graph_median = s641_social + s641_task
+for (i in c(1:length(E(graph_median)$color_1)))
+{
+    E(graph_median)$color_1 <- ifelse(is.na(E(graph_median)$color_1),E(graph_median)$color_2,E(graph_median)$color_1)
+    E(graph_median)$color_2 <- ifelse(is.na(E(graph_median)$color_2),E(graph_median)$color_1,E(graph_median)$color_2)
+
+    if ((E(graph_median)$color_1[i] == 'red') | (E(graph_median)$color_2[i] =='red'))
+      E(graph_median)$color[i] = 'red'
+    if ((E(graph_median)$color_1[i] == 'green') & (E(graph_median)$color_2[i] =='green'))
+      E(graph_median)$color[i] = 'green'
+}
+
+
+plot.igraph(graph_median, layout=layout.fruchterman.reingold, edge.arrow.size=.5,edge.color = E(graph_median)$color,edge.curved = FALSE)
+
+
+```
+# Question 3
+*It is also possible to compute betweenness on the edges in a network, as well as the vertices. These are good measures of flow. Calculate the edge-level betweeness for both of the types of tie, on the network that considers both social and task ties as being a part of the same network. Does it seem like edges with high betweenness tend to be strong or weak ties, according to our two definitions above? Does this result make sense? *
+
+
+```{r}
+q3 = cbind(as.matrix(edge.betweenness(graph_mean)),as.matrix(E(graph_median)$color),as.matrix(E(graph_mean)$color))
+colnames(q3) = c('betweeness','median','mean')
+
+
+
+
+
+
+```
+In general, it holds true, and it works better for judging by mean. 
+
+# Question 4
+*Still consider the network that treats both social and task ties as being a part of the same network. How many pairs of nodes do not have walks between one another? Perform this calculation directly on the matrix. *
+
+
+
+```{r}
+
+dist = matrix(.Machine$integer.max,22,22)
+for(i in c(1:nrow(s641_full_nonzero_edges)))
+{ 
+
+  dist[s641_full_nonzero_edges[i,1], s641_full_nonzero_edges[i,2]] = 1 
+  
+}
+
+
+
+for (k in c(1:22))
+{
+  for (i in c(1:22))
+  {
+    for (j in c(1:22))
+    {
+      if (dist[i,j] > (dist[i,k] + dist[k,j]))
+        dist[i,j] = dist[i,k] + dist[k,j]
+    }
+  }
+}
+
+count_unconnected = 0
+for (i in c(1:22))
+  for (j in c(1:22))
+    if ((i!=3)&(j!=3))
+      if (dist[i,j] == .Machine$integer.max )  
+        count_unconnected = count_unconnected + 1
+print(count_unconnected/2)
+
+```
+
+
+
+# Extra Challenge 
+
+
+
+**
+
+Generate and plot a network in R in which the network-level measure of degree centrality 
+$$ 
+C_{degree} = \sum_{i = 1}^{n}\frac{C_{degree}(v^*) - C_{degree}(v_i)}{(n-1)(n-2)}
+$$
+is equal to 1, and another where it is equal to 0. Would this hold true for other types of centrality? 
+
+
+```{r}
+
+getNetStats_Denormalized=function(net)
+{
+  degree_in = degree(net, mode = "in", normalized = FALSE)
+  degree_out = degree(net, mode = "out", normalized = FALSE)
+  close_all = closeness(net, mode = 'all', normalized = FALSE)
+  betw = betweenness(net,normalized = FALSE)
+  evc = evcent(as.undirected(net, mode = "collapse"))
+  id=V(net)$name
+  stats=as.data.table(list(id = id, degree_in = degree_in, degree_out = degree_out, close_all = close_all, betw = betw, evc = evc$vector))
+  return(stats)
+}
+
+
+```
+
+
+*Graph with network-level centraility = 1*
+
+```{r}
+graph_1 = matrix(c(2,2,2,2,1,3,4,5),4,2)
+g1 = graph.data.frame(graph_1,directed = FALSE)
+plot.igraph(g1)
+```
+
+
+*Graph with network-level centraility = 0*
+
+```{r}
+graph_0  = matrix(c(1,2,3,4,2,3,4,1),4,2)
+g0 = graph.data.frame(graph_0,directed = FALSE)
+plot.igraph(g0)
+```
+
+
+
+
+```{r}
+getNetStats_Denormalized(g1)
+getNetStats_Denormalized(g0)
+
+```
+
+
+It's true for the graph with network-level centraility = 0, but not for the graph with network-level centraility = 1. 
