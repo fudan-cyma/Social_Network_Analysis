@@ -51,9 +51,12 @@ cor(netstats_task[-c(11,12),6],netstats_social[-c(11),6])
 ```
 
 *Undirected closeness is the most close related.* 
+Most centraility measurements are correlated. 
 
 # Question 2 
 *Remaining with the classroom network, suppose that a tie is strong if it is above the mean strength for that type, conditional on the tie existing. Consider both social and task ties as being a part of the same network. Under this definition, does the network satisfy Strong Triadic Closure? Now suppose that a tie is strong if it is above the median strength for that type, conditional on the tie existing. Under this definiton, does the network satisfy Strong Triadic Closure? What conclusions can you draw from these results?* 
+
+In the graph, the red line means a strong tie and the blue line means a weak tie. 
 
 **For mean**
 ```{r}
@@ -83,6 +86,10 @@ plot.igraph(graph_mean, layout=layout.fruchterman.reingold, edge.arrow.size=.5,e
 
 
 ```
+From this plot, node 22 has strong connections with node 5 and node 14, but there are no ties between node 5 and node 14. 
+
+
+
 **For median**
 ```{r}
 median_social = median(s641_full_nonzero_edges$social_tie)
@@ -109,6 +116,10 @@ plot.igraph(graph_median, layout=layout.fruchterman.reingold, edge.arrow.size=.5
 
 
 ```
+From this plot, node 22 has strong connections with node 2 and node 11, but there are no ties between node 2 and node 11. 
+
+Thus, the network doesn't sastify the strong triadic closure. 
+
 # Question 3
 *It is also possible to compute betweenness on the edges in a network, as well as the vertices. These are good measures of flow. Calculate the edge-level betweeness for both of the types of tie, on the network that considers both social and task ties as being a part of the same network. Does it seem like edges with high betweenness tend to be strong or weak ties, according to our two definitions above? Does this result make sense? *
 
@@ -116,7 +127,7 @@ plot.igraph(graph_median, layout=layout.fruchterman.reingold, edge.arrow.size=.5
 ```{r}
 q3 = cbind(as.matrix(edge.betweenness(graph_mean)),as.matrix(E(graph_median)$color),as.matrix(E(graph_mean)$color))
 colnames(q3) = c('betweeness','median','mean')
-
+print(q3)
 
 
 
@@ -181,15 +192,20 @@ is equal to 1, and another where it is equal to 0. Would this hold true for othe
 
 ```{r}
 
-getNetStats_Denormalized=function(net)
+
+getNetStats_Denormalized=function(net,n)
 {
-  degree_in = degree(net, mode = "in", normalized = FALSE)
-  degree_out = degree(net, mode = "out", normalized = FALSE)
-  close_all = closeness(net, mode = 'all', normalized = FALSE)
+  
+  degree = degree(net, mode = "all", normalized = FALSE)
+  degree_network = sum(max(degree) - degree)/((n-1)*(n-2))
+  close_all = closeness(as.undirected(net, mode = 'collapse'), normalized = FALSE) 
+  closeness_network = sum(max(close_all)-close_all)/((n-2)/(2*n - 3))
   betw = betweenness(net,normalized = FALSE)
-  evc = evcent(as.undirected(net, mode = "collapse"))
-  id=V(net)$name
-  stats=as.data.table(list(id = id, degree_in = degree_in, degree_out = degree_out, close_all = close_all, betw = betw, evc = evc$vector))
+  betw_network = 2*sum(max(betw)-betw)/((n-1)^2 * (n-2))
+  
+  evc = centr_eigen(net, directed = FALSE)$centralization
+  
+  stats=as.data.table(list( degree = degree_network, close_all = closeness_network, betw = betw_network, evc = evc))
   return(stats)
 }
 
@@ -200,7 +216,7 @@ getNetStats_Denormalized=function(net)
 *Graph with network-level centraility = 1*
 
 ```{r}
-graph_1 = matrix(c(2,2,2,2,1,3,4,5),4,2)
+graph_1 = matrix(c(2,2,2,1,3,4),3,2)
 g1 = graph.data.frame(graph_1,directed = FALSE)
 plot.igraph(g1)
 ```
@@ -218,10 +234,10 @@ plot.igraph(g0)
 
 
 ```{r}
-getNetStats_Denormalized(g1)
-getNetStats_Denormalized(g0)
+getNetStats_Denormalized(g1,4)
+getNetStats_Denormalized(g0,4)
 
 ```
 
 
-It's true for the graph with network-level centraility = 0, but not for the graph with network-level centraility = 1. 
+It's true for the graph with network-level centraility = 0 and centraility = 0 when using closeness or betweeness, but not for the graph with network-level centraility = 1 using eigenvector centrality. 
