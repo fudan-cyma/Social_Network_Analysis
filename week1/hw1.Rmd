@@ -1,8 +1,9 @@
 ---
 title: "Social Network Analysis Assignment 1"
 output:
-  pdf_document: default
+  html_document: default
   html_notebook: default
+  pdf_document: default
 ---
 
 # Question 1 
