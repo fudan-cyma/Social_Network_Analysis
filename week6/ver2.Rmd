@@ -1,0 +1,208 @@
+---
+title: "R Notebook"
+output: html_notebook
+---
+
+```{r}
+setwd('C:/users/cyma9/dropbox/SocialNetwork/Assignments/Assignment6/')
+
+
+
+require(data.table)
+require(dplyr)
+require(igraph)
+require(MASS)
+require(foreign)
+require(lme4)
+```
+
+# Question 1 
+First, let’s make sure that our droughts and floods are actually random from one election
+period to the next. Let’s also make sure that a neighbor experiencing a drought or flood
+in the previous period isn’t related to a district experiencing a drought or flood in the
+current election period. Run a regression illustrating that experiencing a drought or flood
+in the previous period is not associated with experiencing a drought or flood in the current
+period, and that a neighbor experiencing a drought or flood in the previous period is also
+not associated with experiencing a drought or flood in the current period. Perform the same
+test for standardized rainfall. What does this suggest?
+
+```{r}
+geo = fread('geographic_borders.csv')
+info = fread('district_information_exercise_6.csv')
+info$id = as.numeric(as.factor(info$district))
+info$dnf =  as.numeric(info$mild_drought_or_flood | info$moderate_drought_or_flood)
+
+
+
+
+for (i in c(1:nrow(info))){
+  
+  
+  neighbor = geo$district[geo$focal_district == info$district[i]]
+  
+  infoyear = info[info$year == info$year[i]]
+  info$neighbor_dnf[i] = mean(infoyear$dnf[infoyear$district %in% neighbor], na.rm = TRUE)
+  info$neighbor_moderatednf[i] = mean(infoyear$moderate_drought_or_flood[infoyear$district %in% neighbor] , na.rm = TRUE)
+
+  info$neighbor_rf[i] = mean(infoyear$standardized_rainfall[infoyear$district %in% neighbor],na.rm = TRUE)
+    
+  
+  if (i!=1)
+    if (info$district[i] == info$district[i-1]){
+      info$lastdnf[i] = info$dnf[i-1]
+      info$lastmoderatednf[i] = info$moderate_drought_or_flood[i-1]
+      info$lastrf[i] = info$standardized_rainfall[i-1]
+      info$last_neighbor_dnf[i] = info$neighbor_dnf[i-1]
+      info$last_neighbor_moderatednf[i] = info$neighbor_moderatednf[i-1]
+      info$last_neighbor_rf[i] = info$neighbor_rf[i-1]
+      
+      
+  }
+}
+
+
+reg1_dnf = glm(dnf~ lastdnf + last_neighbor_dnf, data = info, family = binomial(), na.action = na.exclude)
+summary(reg1_dnf)
+
+reg1_rf = lm(standardized_rainfall ~ lastrf + last_neighbor_rf, data = info, na.action = na.exclude)
+summary(reg1_rf)
+
+
+
+
+
+```
+
+Drought and flood in the previous of one district and its neighbor districts have no significant influences on the drought or flood of this term. So the droughts and floods are random from one election period to the next. But this does not hold true for standardized rainfall. 
+
+# Question 2 
+Next, let’s figure out if there are more political parties when there are mild droughts or
+floods. Since the new political parties that enter a district is a count outcome, we should
+use a regression format adopted for counts. The data are overdispersed, so use a negative
+binomial model (check the MASS library). Include a district-level fixed effect, i.e., control
+for the district in the regression. The district-level fixed effect controls for any underlying
+difference between districts that might be correlated with its political or economic conditions.
+What if there are moderate droughts or floods? Also use a regression to illustrate if there
+are more or less new political parties when standardized rainfall is high, and also include a
+district-level fixed effect.
+```{r}
+info = info[info$district!='Medinipur'] # the new parties variable is not integer for Medinipur. 
+
+
+reg2_dnf = glmer.nb(new_parties~mild_drought_or_flood + moderate_drought_or_flood + (1|district), data = info, na.action = na.exclude)
+summary(reg2_dnf)
+
+reg2_rf = glmer.nb(new_parties~standardized_rainfall + (1|district), data = info, na.action = na.exclude)
+summary(reg2_rf)
+
+```
+For this and below questions, the function *glmer.nb* from the package of *lme4* is used. According to the package discription, this function 'Fits a generalized linear mixed-effects model (GLMM) for the negative binomial family, building
+on glmer, and initializing via theta.ml from MASS.'(Aguirre et al, 2008)
+We control the variable of district and take it as the random effects to the model to control the difference between districts and find out the fixed effect of other parameters in the model.
+
+The result shows that while the moderate does have a significant positive effect to the coming out of new parties, the effect of mild drought or flood is not siginicant. However, when the standardized rainfall is high, there're significantly less new parties. 
+
+
+# Question 3
+Now that we have established the baseline effect, we can look at how political activity stimulated
+by droughts or floods in one district might affect political activity in an other district.
+Use a regression to show that, even when taking into account a district’s own droughts and
+floods, that district will have more political parties enter when its neighboring districts experience
+droughts or floods in the previous election period. Focus the regression on moderate
+droughts or floods, and include a district-level fixed effect. Does a similar pattern exist for
+standardized rainfall as well?
+```{r}
+reg2_dnf = glmer.nb(new_parties~moderate_drought_or_flood + last_neighbor_moderatednf + (1|district), data = info, na.action = na.exclude)
+summary(reg2_dnf)
+reg2_rf = glmer.nb(new_parties~standardized_rainfall + last_neighbor_rf +  (1|district), data = info, na.action = na.exclude)
+summary(reg2_rf)
+
+
+```
+The result shows that the droughts or floods in nearby districts have no significant influence on political activity. However, the high standardized rainfall of nearby regions does have a significant negative influence. 
+
+# Question 4 
+What kinds of parties tend to get formed as a result of a district experiencing droughts
+or floods, and its neighbors experiencing droughts or floods in the previous period? Use
+regressions to illustrate whether droughts and floods tend to produce brand new parties that
+have never appeared in the political system before (first_foundings) or franchise parties that
+have contested elections in other districts in previous election periods (franchise_foundings).
+Why might this be the case? Focus the regression on moderate droughts or floods, and
+include a district-level fixed effect.
+```{r, warning=FALSE}
+reg3_first_foundings = glmer.nb(first_foundings ~ moderate_drought_or_flood + last_neighbor_moderatednf + (1|district), data = info, na.action = na.exclude)
+summary(reg3_first_foundings)
+reg3_franchise_foundings = glmer.nb(franchise_foundings ~ moderate_drought_or_flood + last_neighbor_moderatednf + (1|district), data = info, na.action = na.exclude)
+summary(reg3_franchise_foundings)
+
+
+```
+
+
+
+Droughts or floods of one district or its neighbors in the previous period has negative influences on the activities of brand new parties, but significant positive influences on the franchise parties that have contested elections in other district in previous election periods. The situation might be that franchise parties have experience in political activities and the knowledge of handling floods or droughts, so they tend to extend their areas of activities to those districts, but for unexperienced new parties, that extreme weather could not be favorable. 
+
+
+
+
+# Extra
+
+It is possible to ask whether the diffusion of political parties entering
+may hop several borders at one time. Extend the regression model from Question 4 to show
+whether the droughts or floods experienced two districts away in the previous election period have
+any influence on the franchise parties that enter into a district in the current election period. What
+about the droughts or floods that appear two districts away, two election periods ago? What do
+these results suggests about the diffusion process of political parties?
+
+```{r, warning=FALSE}
+districtlist = unique(info$district)
+edgelist = matrix(,0,2)
+for (i in c(1:nrow(geo)))
+{
+  if ((geo$focal_district[i] %in% districtlist)&(geo$district[i] %in% districtlist))
+    edgelist = as.matrix(rbind(edgelist,as.matrix(geo[i,])))
+}
+
+map = graph_from_edgelist(edgelist, directed = FALSE)
+distance = as.data.frame(distances(map))
+
+for (i in c(1:nrow(info))){
+  neighbor_2 = colnames(distance)[which(distance[info$district[i],] == 2)]
+  
+  infoyear = info[info$year == info$year[i]]
+  info$neighbor2_dnf[i] = mean(infoyear$dnf[infoyear$district %in% neighbor_2], na.rm = TRUE)
+  info$neighbor2_rf[i] = mean(infoyear$standardized_rainfall[infoyear$district %in% neighbor_2],na.rm = TRUE)
+    
+  if (i!=1)
+    if (info$district[i] == info$district[i-1]){
+      info$last_neighbor2_dnf[i] = info$neighbor2_dnf[i-1]
+      info$last_neighbor2_rf[i] = info$neighbor2_rf[i-1]
+    }
+  if (i>2)
+    if (info$district[i] == info$district[i-2]){
+      info$last2_neighbor2_dnf[i] = info$neighbor2_dnf[i-2]
+      info$last2_neighbor2_rf[i] = info$neighbor2_rf[i-2]
+          
+  }
+}
+reg4_franchise_dnf = glmer.nb(franchise_foundings ~ dnf + last_neighbor2_dnf + (1|district), data = info, na.action = na.exclude)
+reg4_franchise_rf = glmer.nb(franchise_foundings ~ standardized_rainfall + last_neighbor2_rf + (1|district), data = info, na.action = na.exclude)
+reg4_franchise_dnf2 = glmer.nb(franchise_foundings ~ dnf + last2_neighbor2_dnf + (1|district), data = info, na.action = na.exclude)
+reg4_franchise_rf2 = glmer.nb(franchise_foundings ~ standardized_rainfall + last2_neighbor2_rf + (1|district), data = info, na.action = na.exclude)
+summary(reg4_franchise_dnf)
+summary(reg4_franchise_rf)
+summary(reg4_franchise_dnf2)
+summary(reg4_franchise_rf2)
+
+
+
+```
+
+Neighbors two districts away is calculated by the distance. For the situation of last period of the neighbors two districts away, both of them are siginicant. The droughts or floods have a positive influence on activities of franchise parties. But for two periods ago, both influcens are not significant. 
+
+
+
+References:
+[1]	Leixuri Aguirre, Jesus M. Frias, Catherine Barry-Ryan, and Helen Grogan. Assessing the effect of product variability on the management of the quality of mushrooms (agaricus bisporus). Postharvest Biology and Technology, 49(2):247 - 254, 2008.
+
+

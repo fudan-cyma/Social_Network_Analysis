@@ -1,0 +1,300 @@
+---
+title: "R Notebook"
+output: html_notebook
+---
+
+```{r}
+rm(list = ls(all = TRUE))
+setwd('c:/Users/cyma9/Dropbox/SocialNetwork/Assignments/Assignment5/')
+require(sna)
+require(network)
+require(ergm)
+require(data.table)
+require(igraph)
+raw = fread('startup_rounds_and_participants.csv')
+raw = unique(raw)
+```
+
+
+```{r}
+
+user_id = unique(raw$participant_id[raw$participant_type == 'User'])
+startup_id = union(unique(raw$startup_id),unique(raw$participant_id[raw$participant_type == 'Startup']))
+id = seq(1,length(user_id)+length(startup_id),1)
+nodes = cbind(id, c(user_id,startup_id))
+colnames(nodes)[2] = 'former_id'
+
+edges1 = merge(nodes, raw, by.x = 'former_id',by.y = 'startup_id')
+colnames(edges1)[1] = 'former_s_id'
+colnames(edges1)[2] = 's_id'
+
+edges2 = merge(nodes, edges1, by.x = 'former_id',by.y = 'participant_id')
+colnames(edges2)[1] = 'former_p_id'
+colnames(edges2)[2] = 'p_id'
+
+
+
+net = network(edges2[,c('s_id','p_id')],directed = TRUE)
+net %n% "round" = edges2[,5]
+net %n% "type"  = as.numeric(factor(edges2$participant_type))
+net %n% "traction" = edges2[,8]
+
+
+
+
+
+raw_startup = raw[raw$participant_type == 'Startup',]
+id = seq(1,length(startup_id),1)
+nodes_s = cbind(id, startup_id)
+colnames(nodes_s)[2] = 'former_id'
+
+edges1_s = merge(nodes_s, raw_startup, by.x = 'former_id',by.y = 'startup_id')
+colnames(edges1_s)[1] = 'former_s_id'
+colnames(edges1_s)[2] = 's_id'
+
+edges2_s = merge(nodes_s, edges1_s, by.x = 'former_id',by.y = 'participant_id')
+colnames(edges2_s)[1] = 'former_p_id'
+colnames(edges2_s)[2] = 'p_id'
+
+
+net_startup = network(edges2_s[,c('s_id','p_id')],directed = TRUE)
+
+net_startup %n% "round" = edges2_s[,5]
+net_startup %n% "type"  = as.numeric(factor(edges2_s$participant_type))
+net_startup %n% "traction" = edges2_s[,8]
+
+```
+
+
+
+# Question 1
+```{r}
+
+m1=ergm(net ~ edges + mutual, burnin=15000,MCMCsamplesize=30000,verbose=FALSE)
+m1_startup = ergm(net_startup ~ edges + mutual, burnin=15000,MCMCsamplesize=30000,verbose=FALSE)
+summary(m1)
+summary(m1_startup)
+```
+
+
+
+
+# Question 2 
+Use the network information and an ERGM model to predict whether startups are more
+likely to have larger fundraising rounds (i.e., the “has as a participant” relationship is more
+likely to exist) if they also participate in more funding rounds. You can run the model on
+the entire network or just relationships between startups. In either case, include an edges
+intercept as well as a mutuality covariate in the model.
+```{r}
+idegree = sna::degree(net_startup,cmode = 'indegree')
+net_startup %v% "idegree" = idegree
+m2_startup = ergm(net_startup ~ edges + mutual + nodecov('idegree'), burnin=15000,MCMCsamplesize=30000,verbose=FALSE)
+summary(m2_startup)
+```
+
+# Question 3 
+Use the network information provided and an ERGM model to predict whether an investor
+is more or less likely to participate in a startup’s round if it has participated in in one of its
+rounds in the previous year. Include an edges intercept as well as a mutuality covariate in
+the model.
+```{r}
+ 
+
+
+
+
+edges2$year = as.numeric(substring(edges2$round_record_date,1,4))
+edges_in = edges2[edges2$participant_type == 'User',]
+network12 = matrix(0,179,80)
+for (i in c(1:nrow(edges_in)))
+{
+  if (edges_in$year[i] == 2012)
+    network12[edges_in$s_id[i], edges_in$p_id[i]] = 1
+}
+edges_in2 = edges_in[edges_in$year == 2013|edges_in$year==2014,]
+previous = rep(0,nrow(edges_in2))
+for (i in c(1:nrow(edges_in2)))
+{
+  if (edges_in2$participant_type[i] == 'User'){
+      if (network12[edges_in2$s_id[i],edges_in2$p_id[i]] == 1)
+        previous[i] = 1}
+}
+
+
+
+edges_in3 = cbind(edges_in2, previous)
+edges_in3$p_id = as.factor(edges_in3$p_id)
+edges_in3$s_id = as.factor(edges_in3$s_id)
+
+net_in = network(edges_in3[,c('s_id','p_id')],directed = TRUE)
+
+
+net_in %n% "previous" = edges_in3[,10]
+m3= ergm(net_in ~ edges + mutual + edgecov('previous'), burnin=15000,MCMCsamplesize=30000,verbose=FALSE,control = control.ergm(seed = 8))
+
+summary(m3)
+```
+
+
+
+# Question 4
+Use the network and startup attributes and an ERGM model to predict whether a startup
+is more likely to have participants in its rounds that have gained similar levels of traction
+in the current year. Then, build a model to predcict whether a startup is more likely to
+have participants in its rounds that have gained similar levels of traction using a term for
+the current year as well as the previous year. Only consider interactions between startups in
+these models, and include an edges intercept as well as a mutuality covariate in both models.
+
+The level of tractions are calculated by the absolute value of differences between tractions of startups and participated divided by the sum of them( for regularization).
+
+```{r}
+traction_data = rep(0,300)
+traction = array(traction_data,c(100,3))
+
+edges4_s = edges2_s
+edges4_s$year = as.numeric(substring(edges4_s$round_record_date,1,4))
+
+edges4_s = na.omit(edges4_s)
+
+
+#edges2_s[is.na(edges2_s)] = 0
+
+
+for (i in c(1:nrow(edges4_s)))
+{
+  if (traction[edges4_s$s_id[i],edges4_s$year[i]-2011] == 0)
+    traction[edges4_s$s_id[i],edges4_s$year[i]-2011] = edges4_s$traction[i]
+  else
+    if (traction[edges4_s$s_id[i],edges4_s$year[i]-2011] != edges4_s$traction[i])
+      traction[edges4_s$s_id[i],edges4_s$year[i]-2011] = traction[edges4_s$s_id[i],edges4_s$year[i]-2011] + edges4_s$traction[i]
+}
+
+
+for (i in c(1:nrow(edges4_s))){
+  
+  if(is.na(traction[edges4_s$s_id[i],edges4_s$year[i]-2011]))
+    traction_s = 0
+  else 
+    traction_s = traction[edges4_s$s_id[i],edges4_s$year[i]-2011]
+  if(is.na(traction[edges4_s$p_id[i],edges4_s$year[i]-2011]))
+    traction_p = 0
+  else 
+    traction_p = traction[edges4_s$p_id[i],edges4_s$year[i]-2011]
+  
+  edges4_s$traction_current[i] = abs(traction_s - traction_p)/(traction_s+traction_p)
+}
+
+#edges4_s[is.na(edges4_s)] = 0 
+
+edges4_s = na.omit(edges4_s)
+
+
+net4_current = network(edges4_s[,c('s_id','p_id')],directed = TRUE)
+
+
+#set.edge.attribute(net4_current, "traction_current", edges4_s$traction_current)
+
+net4_current %n% "traction_current" = edges4_s$traction_current
+m4_current = ergm(net4_current ~ edges + mutual + edgecov('traction_current'),burnin=15000,MCMCsamplesize=30000,verbose=FALSE)
+summary(m4_current)
+```
+
+
+For second part, we do a subset on the whole network dataset to keep only 2013 and 2014 to build the network. But for calculating the traction, we are still going to use the whole dataset.  
+```{r}
+set.seed(42)
+edges4_s2 = edges2_s
+edges4_s2$year = as.numeric(substring(edges4_s2$round_record_date,1,4))
+
+edges4_s2 = edges4_s2[edges4_s2$year == 2013 | edges4_s2$year == 2014,]
+
+
+for (i in c(1:nrow(edges4_s2))){
+  
+  if(is.na(traction[edges4_s2$s_id[i],edges4_s2$year[i]-2011]))
+    traction_s = 0
+  else 
+    traction_s = traction[edges4_s2$s_id[i],edges4_s2$year[i]-2011]
+  if(is.na(traction[edges4_s2$p_id[i],edges4_s2$year[i]-2012]))
+    traction_p = 0
+  else 
+    traction_p = traction[edges4_s2$p_id[i],edges4_s2$year[i]-2012]
+  
+  edges4_s2$traction_both[i] = abs(traction_s - traction_p)/(traction_s+traction_p)
+}
+
+
+edges4_s2 = na.omit(edges4_s2)
+
+edges4_s2$p_id = as.factor(edges4_s2$p_id)
+edges4_s2$s_id = as.factor(edges4_s2$s_id)
+net4_both = network(edges4_s2[,c('s_id','p_id')],directed = TRUE)
+
+net4_both %n% "traction_both" = edges4_s2$traction_both
+m4_both = ergm(net4_both ~ edges + mutual + edgecov('traction_both'),burnin=15000,MCMCsamplesize=30000,verbose=FALSE)
+
+summary(m4_both)
+
+```
+
+
+
+# Question5 
+Of the models run so far, which has the best fit to the actual network? Discuss the model
+fit using (1) the built-in mcmc diagnostics, (2) a simulation of the actual network using the
+results from the model, and (3) a goodness-of-fit analysis of the estimated model.
+
+
+## Built-in mcmc diagnostics
+```{r}
+
+mcmc2 = mcmc.diagnostics(m2_startup)
+
+```
+
+The m2 model got a joint p-value of 0.9842437, which should be pretty high. 
+And in the right of the plot, all the graph show a roughly normal distribution around zero, while in the left of the plot, the MCMC sample statistics are varying randomly around the observed value so it is "mixing" well. 
+
+
+## simulation 
+
+```{r}
+m2.sim=simulate(m2_startup,nsim=100);
+simnet1=m2.sim[[1]]
+summary(simnet1)
+plot(simnet1)
+
+```
+We have ploted the simulated graph. Then compare it with the original one:
+
+```{r}
+plot(net_startup)
+
+```
+
+They look like quite similiar. 
+
+## gof plot
+```{r}
+gof2 = gof(m2_startup~model) 
+plot(gof2)
+
+par(mfrow = c(2, 2))
+invisible(plot(gof(m2_startup)))
+
+```
+We are comparing the observed network and networks simulated from the fitted ERGM in terms of the following structure statistics:
+1. degree(in and out): the number of ties of a vertex
+2. edge-wise shared partners: a vertex connecting both ends of a tie.
+3. minimum geodesic distance: the minimum number of connected ties, by which two vertices are related.(Li and Carriere, 2013)
+
+We find that only for one point at in degree, the fitted ERGM doesn't represent the original structure statistics. So it implies a good fit of ERGM. 
+
+
+```{r}
+require(RSiena)
+matrix_in = as.matrix.network(net_in)
+matrix_in_array = as.array(matrix_in)
+nodes = sienaDependent(matrix_in_array)
+
+```
