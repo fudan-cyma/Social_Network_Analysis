@@ -1,0 +1,305 @@
+---
+title: "R Notebook"
+output: html_notebook
+---
+
+
+
+```{r}
+
+
+rm(list = ls(all = TRUE))
+require(igraph)
+require(data.table)
+require(dplyr)
+require(reshape2)
+require(tidyr)
+require(data.table)
+require(gdata)
+require(readr)
+require(sqldf)
+require(igraph)
+
+setwd('c:/Users/cyma9/Dropbox/SocialNetwork/Assignments/Assignment4')
+pd = fread('films_and_production_companies.csv')
+kw = fread('keywords_films_producers.csv')
+matrix_1985 = read.csv('production_keyword_matrix_1985.csv')
+dist = fread('film_distance_3year_window.csv')
+box = fread('box_office_films.csv')
+
+colnames(pd)[1] = 'project'
+
+```
+
+
+
+# Question1
+There is a .zip folder on canvas containing the file “keywords_films_producers.csv”, that
+contains information on the films a producer has made and the plot keywords these films
+are tagged with. In the columns of this file, “pindex” is a numerical identifier for each film,
+“title” is the film’s title, “year” is the year the film was made, “keyindex” is an identifier for
+keywords, “keyword” is the plot keywords that appear in the film, “pcindex” is an identifier
+for production companies, and “prod_company” is the name of the production companies.
+
+Use the keywords shared between two producers to determine how many producers are maximally
+similar according to cosine similarity. Is this number the same for Jaccard similarity?
+Perform this calculation directly on the matrices—the original “keyindex_producers.csv” file
+has been manipuated into another file, “production_keyword_matrix_1985.csv”, that contains
+an incidence matrix of films that were produced in 1985 and the keywords they contain.
+The unmatrix() function in the gdata package may be helpful for examining the distance
+result. If you like, you can try to perform the manipulation of the original data on your own
+
+```{r}
+get_jac = function(vec1,vec2){
+  
+  jaccard = (length(intersect(vec1,vec2))/length(union(vec1,vec2)))
+  return(jaccard)
+}
+
+get_cos = function(vec1,vec2){
+  cos = sum(vec1 * vec2)/(sqrt(sum(vec1 * vec1)) * sqrt(sum(vec2 * vec2)))
+  return(cos)
+}
+
+
+```
+
+
+
+```{r}
+cos_cor_1985 = matrix(0,ncol(matrix_1985) - 1, ncol(matrix_1985) - 1)
+jar_cor_1985 = matrix(0,ncol(matrix_1985) - 1, ncol(matrix_1985) - 1)
+
+for (i in c(2:ncol(matrix_1985)))
+{
+  for (j in c(i:ncol(matrix_1985)))
+  {
+    jar_cor_1985[i - 1, j - 1] = get_jac(which(matrix_1985[,i]!=0),which(matrix_1985[,j]!=0))
+    cos_cor_1985[i - 1, j - 1] = get_cos( matrix_1985[,i],  matrix_1985[,j])
+    
+  }
+}
+diag(cos_cor_1985) = 0
+diag(jar_cor_1985) = 0
+max(cos_cor_1985)
+max(jar_cor_1985)
+
+sum(cos_cor_1985[round(cos_cor_1985,6) == 1]) 
+sum(jar_cor_1985[round(jar_cor_1985,6) == 1])
+
+
+
+
+```
+
+They're the same 
+
+# Question2
+Instead of the above, focus on the following: there is also a file with box office data for some
+of the films in the file, “box_office_films.csv”, also on Canvas. In the columns of this file,
+“total_box” is the box office revenue earned by that film, “budget” is the dollar amount,
+where it is available (0 is unavailable), “release coverage” is the total number of screens the
+film was broadcast on at its peak release, divided by the total number of screens in the U.S.,
+"pindex" is a film identifier consistent with the keywords file, and "title" is the film’s title.
+
+
+It’s possible to use the “keyindex_producers.csv” file and these box office results to figure
+out if the films that are close or distant from one another in terms of their shared
+keywords tend to also bring home similar or different box office revenues. Make the distance
+comparison among firms produced in the focal year, and the two years prior to
+that year—the original “keyindex_producers.csv” has been manipulated into another file,
+“film_distance_3year_window.csv”, that contains pairwise Jaccard distances between films
+for this time comparison. Produce a plot showing this relationship. It is likely helpful to
+go through setting up these kind of grouped lag structures, so you can try to perform the
+manipulation of the original data on your own. The dist() function in the proxy package
+may be helpful for making the distance calculation if you do this on your own.
+
+
+
+```{r}
+box1 = rep(0,nrow(dist))
+box2 = rep(0,nrow(dist))
+dist = as.data.frame(cbind(dist, box1, box2))
+s = rep(0,nrow(dist))
+
+
+for (i in c(1:length(pi1)))
+{
+  if (nrow(box[pindex == pi1[i]]) > 0 )
+    b1[i] = box[pindex == pi1[i]]$total_box
+  else 
+    b1[i] = NaN
+  if (nrow(box[pindex == pi2[i]]) > 0 )
+    b2[i] = box[pindex == pi2[i]]$total_box
+  else 
+    b2[i] = NaN
+}
+pi1 = as.data.frame(cbind(pi1, b1))
+pi2 = as.data.frame(cbind(pi2, b2))
+rownames(pi1) = pi1$pi1
+rownames(pi2) = pi2$pi2
+
+
+for (i in c(1:nrow(dist)))
+{
+  b1 =  pi1[as.character(dist$pindex1[i]),2]
+  b2 =  pi2[as.character(dist$pindex2[i]),2]
+  s[i] = abs(b1-b2) / max(abs(b1),abs(b2))
+}
+
+
+dist$box1 = box[pindex == dist[,1]]$total_box
+print('The corelation between film distance and similiarity of revenue(normalized) is:' )
+print(cor(dist$distance,round(s,4), use = "complete.obs"))
+dist_plot = cbind(dist,s)
+na.exclude(dist_plot)%>%
+  ggplot(aes(x = distance, y = s)) + geom_point() 
+
+```
+Seems they have no relation.
+
+# Question3
+Large and small film producers compete over how to position their films in topic space and
+compete for box office revenues against each other. We can define a large producer as one
+that is at the 75th percentile or above for box office revenues that year. Of the top 250
+keywords, in terms of box office revenue earned, that were used over the last 10 years, how
+many of these appeared primarily (i.e., modally) in films made by large companies? By small
+companies? By collaborations between the two? Illustrate this on a network plot that links
+together keywords that appear in the same film. On the nodes, provide a visual indication for
+which keywords appear more often, and, on the edges, for which keywords appear more often
+with one another. What does this plot suggest about coproduction relationships between
+production companies? The “data table testing and usage.R” file may be helpful for setting
+up the attributes of the network.
+```{r}
+box_merge =  merge(box,pd,by.x = "pindex",by.y = "pindex")
+box_10 = box_merge[box_merge$year > 2006 & box_merge$year < 2017,]
+box_10 = box_10[,c(1,2,8,10)]
+kw = kw[,c(1,3,4,6)]
+
+box_10_unique = unique(box_10[,c(1,2)])
+
+kw_10 = kw[year>2006 & year < 2017,]
+
+keyword = unique(kw_10$keyindex)
+revenue = as.numeric(rep(0,length(keyword)))
+kw_u = as.data.frame(cbind(keyword,revenue), stringsAsFactors = FALSE)
+kw_u$revenue = as.numeric(kw_u$revenue)
+rownames(kw_u) = kw_u$keyword
+
+for (i in c(1:nrow(box_10_unique)))
+{
+  kwlist = unique(kw_10[kw_10$pindex == box_10_unique$pindex[i],3])
+  if (nrow(kwlist) > 0 )
+    for (j in c(1:nrow(kwlist)))
+      kw_u[as.character(kwlist[j]),2] = kw_u[as.character(kwlist[j]),2] + box_10_unique$total_box[i]
+}
+
+kw_250 = as.data.frame(arrange(kw_u, desc(revenue))[1:250,])
+big = rep(0,250)
+small = rep(0,250)
+sb = rep(0,250)
+kw_250 = as.data.frame(cbind(kw_250,big,small,sb))
+rownames(kw_250) = kw_250$keyword
+
+
+
+
+for (y in c(2007:2016)){
+box_10_year = box_10[year == y]
+
+pc_year = unique(box_10_year$PCIndex)
+revenue = rep(0, length(pc_year))
+pc_year = cbind.data.frame(pc_year,revenue,stringsAsFactors = FALSE)
+rownames(pc_year) = pc_year$pc_year
+
+for (i in c(1:nrow(box_10_year)))
+{
+  pc_year[as.character(box_10_year$PCIndex[i]),2] =  pc_year[as.character(box_10_year$PCIndex[i]),2] + box_10_year$total_box[i]
+}
+standard =  quantile(pc_year$revenue,0.75)
+pc_year$type = ifelse(pc_year$revenue > standard,1,0)
+
+
+
+
+
+kw_10_year = as.data.frame(kw_10[year == y])
+movies_year = unique(kw_10_year$pindex)
+big_pc = rep(0,length(movies_year))
+movies_year = cbind.data.frame(movies_year,big_pc, stringsAsFactors = FALSE)
+rownames(movies_year) = movies_year$movies_year
+colnames(movies_year) = c('pindex','count')
+for (i in c(1:nrow(movies_year)))
+{
+  pclist = unique(kw_10_year[kw_10_year$pindex  == movies_year[i,1],4])
+  kwlist = intersect(unique(kw_10_year[kw_10_year$pindex  == movies_year[i,1],3]),kw_250$keyword)
+  movies_year[i,2] = sum(pc_year[pclist,3],na.rm = TRUE)/length(pclist)
+
+  if (movies_year[i,2] == 0) 
+    kw_250[as.character(kwlist),4] = kw_250[as.character(kwlist),4] + 1 else
+    if (movies_year[i,2] == 1)
+      kw_250[as.character(kwlist),3] = kw_250[as.character(kwlist),3] + 1 else
+      kw_250[as.character(kwlist),5] = kw_250[as.character(kwlist),5] + 1 
+  }
+}
+
+type = rep(0,250)
+for (i in c(1:250))
+{
+  if ((kw_250$big[i]>kw_250$small[i])&(kw_250$big[i]>kw_250$sb[i])) 
+    type[i] = 'large' else
+  if ((kw_250$small[i]>kw_250$big[i])&(kw_250$small[i]>kw_250$sb[i])) 
+    type[i] = 'small' else
+          type[i] = 'mixed'
+
+}
+kw_250 = as.data.frame(cbind(kw_250,type))
+print(kw_250[,c(1,6)])
+
+kw_matrix = matrix(0,250,250)
+colnames(kw_matrix) = kw_250$keyword
+rownames(kw_matrix) = kw_250$keyword
+
+movies_10 = unique(kw_10$pindex)
+for (i in c(1:length(movies_10)))
+{
+  kwlist = intersect(unique(kw_10[kw_10$pindex  == movies_10[i],3])[[1]],kw_250$keyword)
+  if (length(kwlist)!= 0)
+    for (j in c(1:length(kwlist)))
+      for (k in c(1:length(kwlist)))
+        kw_matrix[as.character(kwlist[j]),as.character(kwlist[k])] = kw_matrix[as.character(kwlist[j]),as.character(kwlist[k])] + 1
+  
+}
+
+kw_graph = graph.adjacency(kw_matrix, "undirected", weighted = TRUE)
+kw_graph = simplify(kw_graph,remove.multiple = TRUE, remove.loops = TRUE)
+
+for (i in c(1:250))
+{
+  if (kw_250[i,6] == 'large') V(kw_graph)$color[i] = 'red'
+  if (kw_250[i,6] == 'small') V(kw_graph)$color[i] = 'blue'
+  if (kw_250[i,6] == 'mixed') V(kw_graph)$color[i] = 'yellow'
+
+}
+
+plot.igraph(kw_graph,vertex.size = degree(kw_graph,mode = 'all')/30,vertex.label=NA )
+
+
+```
+
+Most cooperations are among the same type of companies. The connections betweek large companies are stronger. 
+
+
+# Extra 
+Producers can choose to make films that are more specialized, or
+produce a portfolio that covers a wider range of topics and features. Use the keywords to generate a yearly measure of feature coverage for each producer for the years the producer has produced at
+least one film. Take this measure as the average Jaccard distance between each pair of keywords in
+the set of keywords a producer uses in its films that year. Do producers that make more specialized
+films, in terms of film topics, experience higher box office revenues per film? What does this suggest
+about audience tastes for films? Note that this calculation is intensive, and does not have to be
+performed directly on the matrices. Here, some looping sequencing that recycles the ojbects and
+refreshes the memory may be helpful. The t(combn) family can also be useful.
+
+```{r}
+
+```
