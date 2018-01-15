@@ -1,0 +1,256 @@
+ol;p---
+title: "Social Network Analysis Assignment 3"
+output:
+  html_document: default
+  html_notebook: default
+  pdf_document: default
+---
+
+
+# Quesion 1 
+**There are two files, “Funding_events_7.14.csv”, and “Funding_events_7.14_page2.csv”, containing
+information on venture capital investment events, from June 1981 until July 2014.
+Perform the small-world exercise for the venture capital co-investment network, and determine
+which firm is the center of the network as of July 2014. Compute the average shortest
+path length between all firms in July 2014. Why is this number so high?**
+
+*In order to avoid potential conflicts in encoding, I change the original csv file into UTF-8 encoding csv file. It will change the format of data from mm/dd/yy to mm/dd/yyyy.*
+
+```{r, message=FALSE, warning=FALSE}
+rm(list = ls(all = TRUE))
+
+
+
+
+
+require(igraph)
+require(reshape2)
+require(data.table)
+require(dplyr)
+require(ggplot2)
+require(network)
+```
+
+
+```{r}
+
+
+setwd('c:/Users/cyma9/Dropbox/SocialNetwork/Assignments/Assignment3')
+data_a <- read.csv('Funding_events_7.14.csv',encoding="UTF-8", header = FALSE,stringsAsFactors = FALSE)
+data_b <- read.csv('Funding_events_7.14_page2.csv',encoding="UTF-8", header = FALSE, stringsAsFactors = FALSE)
+data <- rbind(data_a, data_b)
+data <- data[-1,]
+data <- data[,c(1,4,11)]
+colnames(data) = c('name','time','vc')
+data$date = as.Date(data$time,'%m/%d/%Y')
+data = na.omit(data)
+
+
+
+moy = unique(format(data$date, "%m-%Y"))
+k_core = vector()
+moy_sub = moy[1:100]
+position_start = rep(0,276)
+position_end = rep(0,276)
+month.no = 0 
+graph_final = graph.empty(0, directed = FALSE)
+edgelist = matrix(,0,2)
+components_size = rep(0,276)     # This is for question 5. 
+k_core_above = rep(0,276)
+k_core_below = rep(0,276)
+
+for (monthi  in moy)
+{
+  edgelist_month = matrix(,0,2)
+  month.no = month.no + 1
+  position_start[month.no] = nrow(edgelist) + 1
+
+  data_month = data[(month(data$date) == as.numeric(substr(monthi,1,2))) & (year(data$date) == as.numeric(substr(monthi,4,7))),]
+  data_month$vc_list = strsplit(data_month$vc,', ')
+    for (i in c(1:nrow(data_month))){
+      num_vc = length(data_month$vc_list[[i]])
+      if (num_vc > 0)
+        for (j in c(1:num_vc)){
+          for (k in c(j:num_vc)){
+            edgelist_month = rbind(edgelist_month,c(data_month$vc_list[[i]][j],data_month$vc_list[[i]][k]))
+            
+            }
+          }
+    }
+  
+  graph_month = graph_from_edgelist(edgelist_month, directed = FALSE)
+  graph_month = simplify(graph_month,remove.multiple = TRUE,remove.loops = TRUE) 
+  graph_final = graph.union(graph_final, graph_month)
+  core = coreness(graph_final)
+  k_core = append(k_core,mean(core)) 
+  k_core_above[month.no] = sum(as.vector(core) > quantile(core, prob = 0.8))
+  k_core_below[month.no] = sum(as.vector(core) < quantile(core, prob = 0.2))
+
+  edgelist = rbind(edgelist,edgelist_month)
+  position_end[month.no] = nrow(edgelist)
+  components_size[month.no] = max(components(graph_final,mode = 'weak')$csize)/gorder(graph_final)
+  
+}
+month<-c(1:276)
+k_core_df <-as.data.frame(cbind(k_core,month,position_start,position_end,components_size,k_core_above,k_core_below))
+
+
+
+edge_0714 = edgelist[1:position_end[which(moy == '07-2014')],]
+
+
+graph_0714 = graph_from_edgelist(edge_0714, directed = FALSE)
+graph_0714 = simplify(graph_0714, remove.multiple = TRUE, remove.loops = TRUE)
+matrix_0714 = as.matrix(get.adjacency(graph_0714, name = TRUE))
+center = colSums(matrix_0714)
+print('most center:')
+print(which.max(center))
+
+
+
+
+
+dist = mean_distance(graph_0714,  directed = FALSE)
+print('mean distance = ')
+print(dist)
+```
+
+Lots of points are not connected to the main network. 
+
+
+
+# Question 2
+**Reproduce the figure from class that plotted the coreness of the venture capital network overtime, using monthly snapshots to update the network. On the x-axis should be the age of the network in months. On the y-axis should be the highest-degree k-core each venture capital firm belongs to, averaged over all firms for that monthly snapshot.**
+
+
+```{r}
+
+ggplot(k_core_df) + geom_line(aes(x = month, y = k_core))
+
+
+```
+
+
+
+
+# Question 3 
+**Recreate the figure from Question 2, but now allow ties to “decay.” Remove ties from the network if they are not renewed within 10 years. Does the figure appear much different than before? What does this suggest about the nature of relationships in the network?**
+
+It is slightly different from the figure from Question 2. For those after 200 months, the average coreness gets much lower. It may suggest that after 200 months, the frequency of renewing the co-invest relatoinship gets lower.  
+```{r}
+
+month_counting  = rep(0,nrow(k_core_df))
+month_counting = (as.numeric(substr(moy,1,2)) - 6) + (as.numeric(substr(moy,4,7)) - 1981) * 12
+k_core_3 = vector()
+for (i in c(1:(nrow(k_core_df))))
+{
+  start_pos = min(which(month_counting > (month_counting[i]-100)))
+  edge_month = edgelist[k_core_df$position_start[start_pos]:(k_core_df$position_end[i]),]
+  graph_month = graph_from_edgelist(edge_month, directed = FALSE)
+  graph_month = simplify(graph_month,remove.multiple = TRUE,remove.loops = TRUE)  
+  k_core_3 = append(k_core_3,mean(coreness(graph_month))) 
+}
+k_core_3 <-as.data.frame(cbind(k_core_3,month))
+
+ggplot(k_core_3) + geom_line(aes(x = month, y = k_core_3))
+
+```
+
+
+# Question 4 
+**Let’s also take a look at a clustering approach. For the June 1991 network, use the iterative correlation clustering method, which takes the correlation of the original adjacency matrix and keeps taking the correlation of this result until it converges to a matrix of 1s and−1s.Use this method to split the network into clusters of cliques, and plot the result. Perform this calculation directly on the matrix.**
+```{r}
+
+
+edge_0691 = edgelist[1:position_end[which(moy == '06-1991')],]
+
+
+graph_0691 = graph_from_edgelist(edge_0691, directed = FALSE)
+graph_0691 = simplify(graph_0691, remove.multiple = TRUE, remove.loops = TRUE)
+matrix_0691 = as.matrix(as_adjacency_matrix(graph_0691))
+diag(matrix_0691) = 1
+concor = list()
+concor[[1]] = matrix_0691
+for(i in 2:10){
+	concor[[i]] = cor(concor[[i - 1]])
+}
+concor[[10]][concor[[10]] < 0] = 0
+concor_net = graph.adjacency(as.matrix.network(network(concor[[10]])), "undirected")
+concor_net = simplify(concor_net, remove.loops = TRUE)
+plot.igraph(concor_net, vertex.size = 3,vertex.label=NA )
+
+
+
+
+
+
+```
+
+
+# Question 5
+**Do you think the venture capital tends to exhibit more of a core-periphery or clustered/component structure? Describe a couple pieces of evidence for whichever opinion you choose.**
+
+
+1. The size of the largest connected components
+The ratio of the size of the largest connected components seems to reach a highest point at the middle, then gradually goes down, but still maintains a high level. That is a sign of core-periphery. 
+```{r}
+
+ggplot(k_core_df) + geom_line(aes(x = month, y = components_size))
+
+```
+
+2. We want to see the number of firms having very high coreness. There're more VCs that have a coreness above than 80% percentile, suggesting more VCs are in the core. 
+
+```{r}
+  ggplot(k_core_df) + geom_line(aes(x = month, y = k_core_above))
+
+  
+```
+
+# Extra 
+**Another method for clustering networks relies on the betweenness scores of the network edges. The method calculates the betweeness centrality score for all edges,and then removes the edge with the highest score. It then recalculates the betweenness for the remaining edges, and again removes the one with the highest score. For the June 2001 graph,would this method produce the same number of clusters as the correlation method?**
+
+For the correlation method, there are two clusters. The proglem is that it costs too much time to run. 
+```{r}
+edge_0601 = edgelist[1:position_end[which(moy == '06-2001')],]
+
+graph_0601 = graph_from_edgelist(edge_0601, directed = FALSE)
+
+
+adj_0601 = get.adjacency(graph_0601, name = TRUE)
+matrix_0601 = as.matrix(adj_0601)
+concor = list()
+concor[[1]] = matrix_0601
+for(i in 2:13){
+	concor[[i]] = cor(concor[[i - 1]])
+}
+concor[[13]][concor[[13]] < 0] = 0
+
+
+concor_net = graph.adjacency(as.matrix.network(network(concor[[13]])), "undirected")
+V(concor_net)$color = "light blue"
+
+set_cor1 = na.exclude(colnames(concor[[13]])[concor[[13]] >0])
+set_cor2 = na.exclude(colnames(concor[[13]])[concor[[13]] <0])
+
+graph_0601 = simplify(graph_0601, remove.multiple = TRUE, remove.loops = TRUE)
+plot.igraph(concor_net, layout=layout.fruchterman.reingold,vertex.size = 3,vertex.label=NA )
+
+
+
+```
+
+
+I haven't figure how to  do this part. After deleting 1000 edges(which takes a long time to run), there seems to be no patterns of cluster. 
+```{r}
+edge_betweenness = edge_betweenness(graph_0601)
+graph_0601_e = graph_0601
+
+for (i in c(1:1000))
+{
+  edge_betweenness = edge_betweenness(graph_0601_e)
+  graph_0601_e = delete_edges(graph_0601_e,which.max(edge_betweenness))
+
+}
+
+```
